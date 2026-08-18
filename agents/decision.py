@@ -158,10 +158,12 @@ def decide_for_category(
 ) -> list:
     """For 2+ flagged SKUs sharing a category: run the LP optimizer
     once for the whole group, then build one PriceRecommendation per
-    SKU from its optimized price, still asking Gemini for confidence +
-    reasoning per SKU (the optimizer decides the number, the LLM
-    explains it) -- see Task 8's optimizer.py docstring for the
-    revenue/budget/elasticity/stock formulation.
+    SKU from its optimized price. Optimizer decides the price; confidence
+    is fixed at 0.85 (math-backed, not an LLM guess, but below
+    AUTO_APPROVE_CONFIDENCE_THRESHOLD to force human review of the first
+    batch of optimizer output), and reasoning is templated. See Task 8's
+    optimizer.py docstring for the revenue/budget/elasticity/stock
+    formulation.
     """
     items = {sku: _catalog_item(catalog_by_sku[sku]) for sku in skus}
     optimizer_input = {
@@ -178,25 +180,28 @@ def decide_for_category(
 
     recommendations = []
     for sku in skus:
-        item = items[sku]
-        new_price = output.recommended_prices[sku]
-        projected_margin = round((new_price - item.cost) / new_price, 4)
-        rec = PriceRecommendation(
-            sku=sku,
-            current_price=item.our_price,
-            recommended_price=new_price,
-            confidence=0.85,  # optimizer-derived recommendations use a fixed confidence;
-            # they're math-backed, not an LLM guess, but still below
-            # AUTO_APPROVE_CONFIDENCE_THRESHOLD by design so a human
-            # sees the first batch of optimizer output.
-            reasoning=(
-                f"LP-optimized category price for {catalog_by_sku[sku]['category']}: "
-                f"maximizes group revenue within budget/margin/stock constraints."
-            ),
-            projected_margin_pct=projected_margin,
-        )
-        rec.guardrail_violation = evaluate_guardrails(item, new_price)
-        recommendations.append(rec)
+        try:
+            item = items[sku]
+            new_price = output.recommended_prices[sku]
+            projected_margin = round((new_price - item.cost) / new_price, 4)
+            rec = PriceRecommendation(
+                sku=sku,
+                current_price=item.our_price,
+                recommended_price=new_price,
+                confidence=0.85,  # optimizer-derived recommendations use a fixed confidence;
+                # they're math-backed, not an LLM guess, but still below
+                # AUTO_APPROVE_CONFIDENCE_THRESHOLD by design so a human
+                # sees the first batch of optimizer output.
+                reasoning=(
+                    f"LP-optimized category price for {catalog_by_sku[sku]['category']}: "
+                    f"maximizes group revenue within budget/margin/stock constraints."
+                ),
+                projected_margin_pct=projected_margin,
+            )
+            rec.guardrail_violation = evaluate_guardrails(item, new_price)
+            recommendations.append(rec)
+        except Exception as e:
+            print(f"  [optimizer recommendation failed for {sku}]: {e}")
     return recommendations
 
 
