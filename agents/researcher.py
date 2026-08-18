@@ -8,6 +8,7 @@ and one kind of failure to reason about.
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uuid
@@ -16,44 +17,53 @@ import pandas as pd
 
 import config
 from models import ResearchBatch
-from data.price_source import get_competitor_prices
+from db.connection import get_connection
+from data.price_source import fetch_batch
+from agents.llm_client import RunCostTracker
 
 
 def run_researcher(catalog: pd.DataFrame, run_id: str = None) -> ResearchBatch:
     """Pulls competitor price history for every SKU in the given
-    catalog DataFrame. Errors on individual SKUs (e.g. no competitor
-    data available) are collected rather than raised, so one bad SKU
-    doesn't take down the whole batch -- this mirrors how a real
-    scraper would behave: some sites time out, most don't.
+    catalog DataFrame. Uses a single batch LLM call to generate one SQL
+    query covering all SKUs, instead of one call per SKU.
     """
     run_id = run_id or str(uuid.uuid4())[:8]
 
-    histories = []
+    conn = get_connection(config.DB_PATH)
+    cost_tracker = RunCostTracker()
+    skus = catalog["sku"].tolist()
+
     errors = []
+    try:
+        histories_by_sku = fetch_batch(conn, skus, cost_tracker)
+    except Exception as e:
+        histories_by_sku = {}
+        errors.append(f"batch retrieval failed: {e}")
+    finally:
+        conn.close()
 
-    for sku in catalog["sku"]:
-        try:
-            sku_histories = get_competitor_prices(sku)
-            if not sku_histories:
-                errors.append(f"{sku}: no competitor data found")
-                continue
-            histories.extend(sku_histories)
-        except Exception as e:
-            errors.append(f"{sku}: {e}")
-
-    skus_found = len({h.sku for h in histories})
+    histories = [h for hs in histories_by_sku.values() for h in hs]
+    found_skus = set(histories_by_sku.keys())
+    for sku in skus:
+        if sku not in found_skus:
+            errors.append(f"{sku}: no competitor data found")
 
     return ResearchBatch(
         run_id=run_id,
         histories=histories,
         skus_requested=len(catalog),
-        skus_found=skus_found,
+        skus_found=len(found_skus),
         errors=errors,
     )
 
 
 if __name__ == "__main__":
-    catalog = pd.read_csv(config.CATALOG_PATH)
+    from db.catalog_repo import get_catalog_df
+
+    conn = get_connection(config.DB_PATH)
+    catalog = get_catalog_df(conn)
+    conn.close()
+
     batch = run_researcher(catalog)
     print(f"Run {batch.run_id}: {batch.skus_found}/{batch.skus_requested} SKUs found")
     print(f"Total competitor histories: {len(batch.histories)}")
