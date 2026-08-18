@@ -112,6 +112,11 @@ def decide_for_sku(
         prompt=prompt,
         response_model=LLMPriceSuggestion,
         cost_tracker=cost_tracker,
+        fallback_factory=lambda: LLMPriceSuggestion(
+            recommended_price=analysis.avg_competitor_price or item.our_price,
+            confidence=0.5,
+            reasoning="Fallback: rule-based match to competitor average after LLM failure.",
+        ),
     )
 
     projected_margin = round(

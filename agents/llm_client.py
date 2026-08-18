@@ -9,6 +9,7 @@ remember to do it themselves.
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import time
@@ -43,6 +44,7 @@ class RunCostTracker:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.estimated_cost_usd = 0.0
+        self._cache: dict[str, BaseModel] = {}
 
     def record(self, input_tokens: int, output_tokens: int) -> None:
         self.calls += 1
@@ -68,19 +70,36 @@ class RunCostTracker:
                 f"exceeded -- stopping run."
             )
 
+    def get_cached(self, prompt: str):
+        return self._cache.get(prompt)
+
+    def put_cached(self, prompt: str, result) -> None:
+        self._cache[prompt] = result
+
 
 def generate_structured(
     prompt: str,
     response_model: type[T],
     cost_tracker: RunCostTracker,
     max_retries: int = 2,
+    fallback_factory=None,
 ) -> T:
     """Calls Gemini with a JSON-schema-constrained prompt and returns a
     validated instance of response_model. Retries on either a Gemini-side
     failure or a Pydantic validation failure (e.g. a hallucinated price
     that trips our field_validator in models.py), since a single bad
     generation shouldn't fail the whole pipeline run.
+
+    If fallback_factory is provided and all retries are exhausted, calls
+    fallback_factory() and returns its result instead of raising.
+
+    Results are cached by prompt string, so identical prompts within the
+    same run skip the LLM call entirely.
     """
+    cached = cost_tracker.get_cached(prompt)
+    if cached is not None:
+        return cached
+
     cost_tracker.check_within_budget()
 
     last_error = None
@@ -105,15 +124,24 @@ def generate_structured(
             # response.parsed is the SDK's own schema-validated object;
             # we re-validate through our own model anyway so our custom
             # field_validator (the sane_change check in models.py) runs too.
-            return response_model.model_validate(response.parsed.model_dump()
-                                                  if hasattr(response.parsed, "model_dump")
-                                                  else response.parsed)
+            result = response_model.model_validate(
+                response.parsed.model_dump()
+                if hasattr(response.parsed, "model_dump")
+                else response.parsed
+            )
+            cost_tracker.put_cached(prompt, result)
+            return result
 
         except (ValidationError, ValueError, Exception) as e:
             last_error = e
             if attempt <= max_retries:
                 time.sleep(1.5 * attempt)  # brief backoff before retrying
                 continue
+
+    if fallback_factory is not None:
+        result = fallback_factory()
+        cost_tracker.put_cached(prompt, result)
+        return result
 
     raise RuntimeError(
         f"generate_structured failed after {max_retries + 1} attempts. "
