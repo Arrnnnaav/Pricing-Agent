@@ -1,0 +1,7 @@
+python-dotenv
+pydantic>=2.0
+pandas
+numpy
+faker
+google-genai
+apscheduler
