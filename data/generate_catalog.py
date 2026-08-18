@@ -13,6 +13,7 @@ model naming).
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import random
@@ -65,15 +66,34 @@ CATEGORIES = {
 }
 
 
-
 # Faker's default word() pulls generic English nouns ("Dog", "Election"),
 # which reads as obviously fake for a product name. A curated tech-brand
 # vocabulary is worth the manual list -- it's what actually sells the
 # "this looks like a real catalog" illusion in a demo.
 MODEL_WORDS = [
-    "Vortex", "Pulse", "Nova", "Zenith", "Apex", "Flux", "Orion", "Nimbus",
-    "Halo", "Ridge", "Volt", " Echo".strip(), "Prism", "Vertex", "Drift",
-    "Surge", "Onyx", "Aria", "Comet", "Blaze", "Crest", "Fusion", "Spark",
+    "Vortex",
+    "Pulse",
+    "Nova",
+    "Zenith",
+    "Apex",
+    "Flux",
+    "Orion",
+    "Nimbus",
+    "Halo",
+    "Ridge",
+    "Volt",
+    " Echo".strip(),
+    "Prism",
+    "Vertex",
+    "Drift",
+    "Surge",
+    "Onyx",
+    "Aria",
+    "Comet",
+    "Blaze",
+    "Crest",
+    "Fusion",
+    "Spark",
 ]
 
 
@@ -137,26 +157,38 @@ def generate_catalog(num_skus: int = config.NUM_SKUS) -> pd.DataFrame:
         # SKU having implausibly identical stock.
         stock = int(max(0, np.random.normal(loc=60, scale=30)))
 
-        rows.append({
-            "sku": make_sku_code(category, i),
-            "name": make_product_name(brand, category),
-            "brand": brand,
-            "category": category,
-            "our_price": our_price,
-            "cost": cost,
-            "stock": stock,
-        })
+        rows.append(
+            {
+                "sku": make_sku_code(category, i),
+                "name": make_product_name(brand, category),
+                "brand": brand,
+                "category": category,
+                "our_price": our_price,
+                "cost": cost,
+                "stock": stock,
+            }
+        )
 
     return pd.DataFrame(rows)
 
 
 if __name__ == "__main__":
+    from db.connection import get_connection, init_db
+    from db.catalog_repo import insert_catalog_rows
+
     df = generate_catalog()
     os.makedirs(config.DATA_DIR, exist_ok=True)
-    df.to_csv(config.CATALOG_PATH, index=False)
+    conn = get_connection(config.DB_PATH)
+    init_db(conn)
+    insert_catalog_rows(conn, df.to_dict(orient="records"))
 
-    print(f"Generated {len(df)} SKUs -> {config.CATALOG_PATH}")
+    print(f"Generated {len(df)} SKUs -> {config.DB_PATH}")
     print(f"Categories: {df['category'].value_counts().to_dict()}")
-    print(f"Avg margin: {((df['our_price'] - df['cost']) / df['our_price']).mean():.1%}")
-    print(f"Low-stock SKUs (<= {config.LOW_STOCK_THRESHOLD_UNITS}): "
-          f"{(df['stock'] <= config.LOW_STOCK_THRESHOLD_UNITS).sum()}")
+    print(
+        f"Avg margin: {((df['our_price'] - df['cost']) / df['our_price']).mean():.1%}"
+    )
+    print(
+        f"Low-stock SKUs (<= {config.LOW_STOCK_THRESHOLD_UNITS}): "
+        f"{(df['stock'] <= config.LOW_STOCK_THRESHOLD_UNITS).sum()}"
+    )
+    conn.close()

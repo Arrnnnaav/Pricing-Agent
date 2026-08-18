@@ -69,3 +69,19 @@ def test_competitor_price_rows_roundtrip():
     assert len(rows) == 1
     assert rows[0]["competitor"] == "ByteMart"
     conn.close()
+
+
+def test_generated_catalog_loads_into_db():
+    import os
+    import tempfile
+    from data.generate_catalog import generate_catalog
+
+    df = generate_catalog(num_skus=5)
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "test.db")
+        conn = get_connection(db_path)
+        init_db(conn)
+        insert_catalog_rows(conn, df.to_dict(orient="records"))
+        loaded = get_catalog_df(conn)
+        assert len(loaded) == 5
+        conn.close()

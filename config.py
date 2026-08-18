@@ -87,8 +87,7 @@ DAILY_PRICE_STEP_STD_PCT = 0.015
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-CATALOG_PATH = os.path.join(DATA_DIR, "catalog.csv")
-PRICE_HISTORY_PATH = os.path.join(DATA_DIR, "competitor_price_history.csv")
+DB_PATH = os.path.join(DATA_DIR, "pricing_agent.db")
 
 AUDIT_DIR = os.path.join(PROJECT_ROOT, "audit")
 AUDIT_LOG_PATH = os.path.join(AUDIT_DIR, "agent_audit.jsonl")
