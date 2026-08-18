@@ -13,6 +13,7 @@ Run this once to produce data/competitor_price_history.csv:
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import random
@@ -35,7 +36,16 @@ def generate_competitor_names(n: int = config.NUM_COMPETITORS) -> list[str]:
     'CircuitHub'. We don't use real company names (TechCorp, Amazon,
     etc.) -- this is synthetic data and should look obviously
     illustrative, not imply we scraped a real retailer."""
-    prefixes = ["Byte", "Circuit", "Volt", "Gadget", "Nexus", "Prime", "Quantum", "Spark"]
+    prefixes = [
+        "Byte",
+        "Circuit",
+        "Volt",
+        "Gadget",
+        "Nexus",
+        "Prime",
+        "Quantum",
+        "Spark",
+    ]
     suffixes = ["Mart", "Hub", "Bazaar", "Depot", "Point", "Store", "Cart"]
     names = set()
     while len(names) < n:
@@ -57,9 +67,9 @@ COMPETITOR_PROFILES = {
         # competitor tends to sit 6% below us.
         "price_bias": np.random.normal(loc=1.0, scale=0.06),
         # Daily volatility for this competitor's random walk step.
-        "volatility": abs(np.random.normal(
-            loc=config.DAILY_PRICE_STEP_STD_PCT, scale=0.005
-        )),
+        "volatility": abs(
+            np.random.normal(loc=config.DAILY_PRICE_STEP_STD_PCT, scale=0.005)
+        ),
         # How strongly this competitor's price is pulled back toward
         # its target each day (0 = no pull / pure random walk,
         # 1 = snaps back immediately). Real markets sit somewhere in between.
@@ -116,29 +126,41 @@ def generate_price_history(
 
             for day_offset, price in enumerate(walk):
                 in_stock = np.random.random() > profile["stockout_prob"]
-                rows.append({
-                    "sku": item["sku"],
-                    "competitor": competitor,
-                    "date": date_range[day_offset].isoformat(),
-                    "price": price,
-                    "in_stock": in_stock,
-                })
+                rows.append(
+                    {
+                        "sku": item["sku"],
+                        "competitor": competitor,
+                        "date": date_range[day_offset].isoformat(),
+                        "price": price,
+                        "in_stock": in_stock,
+                    }
+                )
 
     return pd.DataFrame(rows)
 
 
 if __name__ == "__main__":
-    catalog = pd.read_csv(config.CATALOG_PATH)
+    from db.connection import get_connection, init_db
+    from db.catalog_repo import get_catalog_df
+    from db.competitor_repo import insert_competitor_price_rows
+
+    conn = get_connection(config.DB_PATH)
+    init_db(conn)
+    catalog = get_catalog_df(conn)
 
     df = generate_price_history(catalog)
-    os.makedirs(config.DATA_DIR, exist_ok=True)
-    df.to_csv(config.PRICE_HISTORY_PATH, index=False)
+    insert_competitor_price_rows(conn, df.to_dict(orient="records"))
 
-    print(f"Generated {len(df)} price points -> {config.PRICE_HISTORY_PATH}")
-    print(f"  {len(catalog)} SKUs x {len(COMPETITORS)} competitors x "
-          f"{config.PRICE_HISTORY_DAYS} days")
+    print(f"Generated {len(df)} price points -> {config.DB_PATH}")
+    print(
+        f"  {len(catalog)} SKUs x {len(COMPETITORS)} competitors x "
+        f"{config.PRICE_HISTORY_DAYS} days"
+    )
     print(f"Competitors: {COMPETITORS}")
     for name, profile in COMPETITOR_PROFILES.items():
-        print(f"  {name}: price_bias={profile['price_bias']:.2f}, "
-              f"volatility={profile['volatility']:.3f}, "
-              f"mean_reversion={profile['mean_reversion']:.2f}")
+        print(
+            f"  {name}: price_bias={profile['price_bias']:.2f}, "
+            f"volatility={profile['volatility']:.3f}, "
+            f"mean_reversion={profile['mean_reversion']:.2f}"
+        )
+    conn.close()

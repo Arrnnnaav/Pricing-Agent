@@ -1,3 +1,5 @@
+import os
+import tempfile
 import pandas as pd
 from db.connection import get_connection, init_db
 from db.catalog_repo import insert_catalog_rows, get_catalog_df, update_price
@@ -72,8 +74,6 @@ def test_competitor_price_rows_roundtrip():
 
 
 def test_generated_catalog_loads_into_db():
-    import os
-    import tempfile
     from data.generate_catalog import generate_catalog
 
     df = generate_catalog(num_skus=5)
@@ -84,4 +84,22 @@ def test_generated_catalog_loads_into_db():
         insert_catalog_rows(conn, df.to_dict(orient="records"))
         loaded = get_catalog_df(conn)
         assert len(loaded) == 5
+        conn.close()
+
+
+def test_generated_price_history_loads_into_db():
+    from data.generate_catalog import generate_catalog
+    from data.mock_price_generator import generate_price_history
+
+    catalog_df = generate_catalog(num_skus=3)
+    history_df = generate_price_history(catalog_df, days=4)
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "test.db")
+        conn = get_connection(db_path)
+        init_db(conn)
+        insert_catalog_rows(conn, catalog_df.to_dict(orient="records"))
+        insert_competitor_price_rows(conn, history_df.to_dict(orient="records"))
+        first_sku = catalog_df["sku"].iloc[0]
+        rows = get_rows_for_sku(conn, first_sku)
+        assert len(rows) > 0
         conn.close()
