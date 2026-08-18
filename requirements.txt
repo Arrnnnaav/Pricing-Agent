@@ -6,3 +6,4 @@ faker
 google-genai
 apscheduler
 pulp
+rapidfuzz
