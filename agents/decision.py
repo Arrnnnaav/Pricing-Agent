@@ -27,6 +27,8 @@ from models import (
 )
 from agents.guardrails import evaluate_guardrails
 from agents.llm_client import generate_structured, RunCostTracker
+from tools.registry import call_tool, register_all_tools
+from tools.optimizer import OptimizerOutput
 
 PROMPT_TEMPLATE = """You are a pricing analyst for an electronics retailer. \
 Recommend a new price for this product based on competitor data.
