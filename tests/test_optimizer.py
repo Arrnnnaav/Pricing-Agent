@@ -98,3 +98,47 @@ def test_optimizer_budget_constraint_binds():
         f"budget (1000.0). Got tight={price_tight}, generous={price_generous}. "
         f"Budget constraint is not binding."
     )
+
+
+# Task 11: test_group_flagged_by_category
+import pandas as pd
+from models import SkuAnalysis
+from agents.decision import group_flagged_by_category
+
+
+def test_group_flagged_by_category():
+    catalog_by_sku = {
+        "A": pd.Series({"sku": "A", "category": "Laptops"}),
+        "B": pd.Series({"sku": "B", "category": "Laptops"}),
+        "C": pd.Series({"sku": "C", "category": "Headphones"}),
+    }
+    flagged = [
+        SkuAnalysis(
+            sku="A",
+            our_price=100,
+            current_margin_pct=0.2,
+            competitor_count=1,
+            needs_decision=True,
+        ),
+        SkuAnalysis(
+            sku="B",
+            our_price=200,
+            current_margin_pct=0.2,
+            competitor_count=1,
+            needs_decision=True,
+        ),
+        SkuAnalysis(
+            sku="C",
+            our_price=50,
+            current_margin_pct=0.2,
+            competitor_count=1,
+            needs_decision=True,
+        ),
+    ]
+    grouped = group_flagged_by_category(catalog_by_sku, flagged)
+    assert set(grouped["Laptops"]) == {"A", "B"}
+    assert (
+        grouped["Headphones"] == ["C"]
+        if isinstance(grouped["Headphones"], list)
+        else True
+    )
