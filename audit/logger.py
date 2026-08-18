@@ -8,6 +8,7 @@ log has months of daily runs in it.
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
@@ -17,7 +18,9 @@ from typing import Any
 import config
 
 
-def log_event(run_id: str, agent: str, event: str, data: dict[str, Any]) -> None:
+def log_event(
+    run_id: str, agent: str, event: str, data: dict[str, Any], latency_ms: float = None
+) -> None:
     """Appends one audit event. `data` should already be JSON-serializable
     (e.g. from calling .model_dump(mode="json") on a Pydantic model) --
     this function doesn't try to serialize arbitrary Python objects for you.
@@ -31,6 +34,8 @@ def log_event(run_id: str, agent: str, event: str, data: dict[str, Any]) -> None
         "event": event,
         "data": data,
     }
+    if latency_ms is not None:
+        entry["latency_ms"] = latency_ms
 
     with open(config.AUDIT_LOG_PATH, "a") as f:
         f.write(json.dumps(entry, default=str) + "\n")

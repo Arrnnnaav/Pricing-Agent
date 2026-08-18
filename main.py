@@ -14,6 +14,7 @@ Run with:
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import uuid
@@ -37,14 +38,18 @@ def run_pipeline() -> dict:
     print("[1/4] Researcher agent: gathering competitor prices...")
     research = run_researcher(catalog, run_id=run_id)
     log_event(run_id, "researcher", "batch_complete", research.model_dump(mode="json"))
-    print(f"      {research.skus_found}/{research.skus_requested} SKUs found, "
-          f"{len(research.errors)} errors\n")
+    print(
+        f"      {research.skus_found}/{research.skus_requested} SKUs found, "
+        f"{len(research.errors)} errors\n"
+    )
 
     # --- Analyst ---
     print("[2/4] Analyst agent: comparing against catalog and checking guardrails...")
     analysis = run_analyst(catalog, research)
     log_event(run_id, "analyst", "batch_complete", analysis.model_dump(mode="json"))
-    print(f"      {analysis.flagged_count}/{len(analysis.analyses)} SKUs flagged for decision\n")
+    print(
+        f"      {analysis.flagged_count}/{len(analysis.analyses)} SKUs flagged for decision\n"
+    )
 
     # --- Decision ---
     print("[3/4] Decision agent: requesting price recommendations from Gemini...")
@@ -70,13 +75,26 @@ def run_pipeline() -> dict:
     catalog.to_csv(config.CATALOG_PATH, index=False)
 
     executed_count = sum(1 for r in results if r.executed)
-    print(f"\n=== Run {run_id} complete: {executed_count}/{len(results)} price changes executed ===")
+    print(
+        f"\n=== Run {run_id} complete: {executed_count}/{len(results)} price changes executed ==="
+    )
 
-    log_event(run_id, "pipeline", "run_complete", {
-        "skus_flagged": analysis.flagged_count,
-        "recommendations": len(decisions.recommendations),
-        "executed": executed_count,
-    })
+    log_event(
+        run_id,
+        "pipeline",
+        "run_complete",
+        {
+            "skus_flagged": analysis.flagged_count,
+            "recommendations": len(decisions.recommendations),
+            "executed": executed_count,
+        },
+    )
+
+    from audit.metrics import compute_run_metrics
+
+    metrics = compute_run_metrics(run_id)
+    log_event(run_id, "pipeline", "eval_metrics", metrics)
+    print(f"      Eval metrics: {metrics}")
 
     return {
         "run_id": run_id,
