@@ -58,3 +58,22 @@ def call_tool(name: str, input_dict: dict, run_id: str = "unlogged") -> BaseMode
                 "latency_ms": latency_ms,
             },
         )
+
+
+def register_all_tools() -> None:
+    """Registers every tool the Decision agent can call. Imports are
+    local to avoid a circular import (optimizer/semantic_matcher/scraper
+    don't need to import registry at module load time otherwise)."""
+    from tools.optimizer import (
+        OptimizerInput,
+        OptimizerOutput,
+        optimize_category_prices,
+    )
+    from tools.semantic_matcher import MatchInput, MatchOutput, match_listing_to_sku
+    from tools.scraper_tool import ScrapeInput, ScrapeOutput, scrape_competitor_prices
+
+    register(
+        Tool("optimizer", OptimizerInput, OptimizerOutput, optimize_category_prices)
+    )
+    register(Tool("semantic_matcher", MatchInput, MatchOutput, match_listing_to_sku))
+    register(Tool("scraper", ScrapeInput, ScrapeOutput, scrape_competitor_prices))

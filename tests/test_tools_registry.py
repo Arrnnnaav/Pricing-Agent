@@ -32,3 +32,10 @@ def test_invalid_input_raises_before_calling_func():
     register(Tool(name="echo", input_model=_EchoIn, output_model=_EchoOut, func=_echo))
     with pytest.raises(Exception):  # pydantic.ValidationError
         call_tool("echo", {"value": "not an int"})
+
+
+def test_register_all_tools_populates_registry():
+    from tools.registry import register_all_tools
+
+    register_all_tools()
+    assert {"scraper", "optimizer", "semantic_matcher"} <= set(_REGISTRY.keys())
