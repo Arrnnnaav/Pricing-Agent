@@ -48,12 +48,15 @@ def optimize_category_prices(inp: OptimizerInput) -> OptimizerOutput:
     for sku in inp.skus:
         current = inp.current_prices[sku]
         cost = inp.costs[sku]
-        lo = max(
-            current * (1 - inp.max_price_change_pct), cost / (1 - inp.min_margin_pct)
-        )
-        hi = current * (1 + inp.max_price_change_pct)
+        margin_floor_price = cost / (1 - inp.min_margin_pct)
+        max_change_hi = current * (1 + inp.max_price_change_pct)
+        lo = max(current * (1 - inp.max_price_change_pct), margin_floor_price)
+        hi = max_change_hi
         if lo > hi:
-            lo = hi  # margin floor stricter than change bound leaves one feasible point
+            # Margin floor is the business-critical constraint; when it conflicts
+            # with the max-change bound, use the margin floor price as the single
+            # feasible point, not the max-change bound.
+            lo = hi = margin_floor_price
         steps = 11
         candidates = [lo + (hi - lo) * i / (steps - 1) for i in range(steps)]
         price_vars[sku] = {
@@ -76,6 +79,14 @@ def optimize_category_prices(inp: OptimizerInput) -> OptimizerOutput:
     problem += pulp.lpSum(budget_terms) <= inp.category_budget
 
     problem.solve(pulp.PULP_CBC_CMD(msg=False))
+
+    # Check solver status; if not optimal, raise clear error for caller diagnosis.
+    status_str = pulp.LpStatus[problem.status]
+    if status_str != "Optimal":
+        raise RuntimeError(
+            f"LP solver returned status '{status_str}' (not Optimal). "
+            f"Problem may be infeasible or unbounded; check budget and price bounds."
+        )
 
     recommended = {}
     for sku in inp.skus:
