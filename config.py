@@ -91,3 +91,10 @@ DB_PATH = os.path.join(DATA_DIR, "pricing_agent.db")
 
 AUDIT_DIR = os.path.join(PROJECT_ROOT, "audit")
 AUDIT_LOG_PATH = os.path.join(AUDIT_DIR, "agent_audit.jsonl")
+
+# --- Slack approval gate (optional) -------------------------------------------
+# If SLACK_BOT_TOKEN is not set, the approval gate falls back to CLI.
+# Otherwise, approval requests are posted to Slack with Approve/Reject buttons.
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
+SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
+SLACK_APPROVAL_CHANNEL = os.environ.get("SLACK_APPROVAL_CHANNEL", "#pricing-approvals")

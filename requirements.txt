@@ -7,3 +7,6 @@ google-genai
 apscheduler
 pulp
 rapidfuzz
+slack_sdk
+fastapi
+uvicorn

@@ -9,12 +9,18 @@ file's "ask a human" step changes.
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 
 import config
-from models import PriceRecommendation, GuardrailViolation, ApprovalOutcome, ExecutionResult
+from models import (
+    PriceRecommendation,
+    GuardrailViolation,
+    ApprovalOutcome,
+    ExecutionResult,
+)
 
 
 def _ask_human_cli(rec: PriceRecommendation) -> bool:
@@ -24,13 +30,27 @@ def _ask_human_cli(rec: PriceRecommendation) -> bool:
     click instead of terminal input().
     """
     print(f"\n--- Approval needed: {rec.sku} ---")
-    print(f"  ${rec.current_price:.2f} -> ${rec.recommended_price:.2f} "
-          f"({(rec.recommended_price - rec.current_price) / rec.current_price:+.1%})")
+    print(
+        f"  ${rec.current_price:.2f} -> ${rec.recommended_price:.2f} "
+        f"({(rec.recommended_price - rec.current_price) / rec.current_price:+.1%})"
+    )
     print(f"  Confidence: {rec.confidence:.0%}")
     print(f"  Projected margin: {rec.projected_margin_pct:.1%}")
     print(f"  Reasoning: {rec.reasoning}")
     answer = input("  Approve? [y/n]: ").strip().lower()
     return answer == "y"
+
+
+def _ask_human_slack(rec: PriceRecommendation) -> bool:
+    from agents.slack_approval import ask_slack
+
+    return ask_slack(rec)
+
+
+# Swap point: set to _ask_human_slack to route through Slack instead of
+# the CLI. Kept as a module-level name (not hardcoded inline) so tests
+# can patch agents.approval._ask_human directly.
+_ask_human = _ask_human_cli if not config.SLACK_BOT_TOKEN else _ask_human_slack
 
 
 def route_recommendation(rec: PriceRecommendation) -> ApprovalOutcome:
@@ -51,11 +71,15 @@ def route_recommendation(rec: PriceRecommendation) -> ApprovalOutcome:
         # A guardrail violation is never auto-executed, but we still let
         # a human explicitly override it via the CLI prompt -- guardrails
         # protect against silent automation, not against informed humans.
-        print(f"\n[GUARDRAIL VIOLATION: {rec.guardrail_violation.value}] "
-              f"for {rec.sku} -- requires explicit human approval.")
+        print(
+            f"\n[GUARDRAIL VIOLATION: {rec.guardrail_violation.value}] "
+            f"for {rec.sku} -- requires explicit human approval."
+        )
 
-    approved = _ask_human_cli(rec)
-    return ApprovalOutcome.HUMAN_APPROVED if approved else ApprovalOutcome.HUMAN_REJECTED
+    approved = _ask_human(rec)
+    return (
+        ApprovalOutcome.HUMAN_APPROVED if approved else ApprovalOutcome.HUMAN_REJECTED
+    )
 
 
 def execute_recommendation(
@@ -65,7 +89,10 @@ def execute_recommendation(
     the outcome was any form of approval, and returns an ExecutionResult
     describing what happened either way (including rejections -- a
     rejected recommendation is still a real event worth recording)."""
-    executed = outcome in (ApprovalOutcome.AUTO_APPROVED, ApprovalOutcome.HUMAN_APPROVED)
+    executed = outcome in (
+        ApprovalOutcome.AUTO_APPROVED,
+        ApprovalOutcome.HUMAN_APPROVED,
+    )
 
     if executed:
         catalog.loc[catalog["sku"] == rec.sku, "our_price"] = rec.recommended_price
