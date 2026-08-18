@@ -1,70 +1,45 @@
+"""SQL/RAG retrieval for competitor price data.
+
+The Researcher agent asks an LLM to write a SQL SELECT against the
+competitor_prices table (see build_batch_sql_prompt / fetch_batch in
+Task 6) instead of filtering a DataFrame directly -- that's the "RAG"
+half of this file. assert_readonly_sql is the guard that runs before
+ANY generated SQL touches the real connection: a generated statement is
+untrusted input same as user input would be, and it only ever needs to
+read, so we reject anything else outright rather than trying to sandbox
+a write.
 """
-The interface the Researcher agent calls to get competitor price data.
 
-This file is the deliberate "swap point" in the architecture: today,
-get_competitor_prices() reads from our synthetic CSV. If this project
-ever needed real data, only this file would change -- researcher.py,
-analyst.py, and everything downstream would keep working unmodified,
-because they only depend on the CompetitorPriceHistory shape defined
-in models.py, not on how that data was produced.
-"""
+import re
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from datetime import date as date_type, datetime
-
-import pandas as pd
-
-import config
-from models import CompetitorPricePoint, CompetitorPriceHistory
+_DISALLOWED_KEYWORDS = (
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "DROP",
+    "ALTER",
+    "CREATE",
+    "REPLACE",
+    "PRAGMA",
+    "ATTACH",
+    "DETACH",
+    "VACUUM",
+)
 
 
-def _load_history_csv() -> pd.DataFrame:
-    """Loads the raw history CSV, generating it first if it doesn't
-    exist yet. Keeps callers from having to remember to run the
-    generator script manually before their first pipeline run."""
-    if not os.path.exists(config.PRICE_HISTORY_PATH):
-        from mock_price_generator import generate_price_history
-        catalog = pd.read_csv(config.CATALOG_PATH)
-        df = generate_price_history(catalog)
-        os.makedirs(config.DATA_DIR, exist_ok=True)
-        df.to_csv(config.PRICE_HISTORY_PATH, index=False)
-        return df
-    return pd.read_csv(config.PRICE_HISTORY_PATH)
+def assert_readonly_sql(sql: str) -> None:
+    """Raises ValueError unless `sql` is a single read-only SELECT
+    statement. Rejects multiple statements (semicolon-separated) and
+    any DML/DDL/PRAGMA keyword appearing anywhere in the text."""
+    stripped = sql.strip().rstrip(";")
 
+    if ";" in stripped:
+        raise ValueError("Multiple SQL statements are not allowed")
 
-def get_competitor_prices(sku: str) -> list[CompetitorPriceHistory]:
-    """Returns this SKU's price history, one CompetitorPriceHistory per
-    competitor that carries it. This is the only function researcher.py
-    should call -- it never touches the CSV or pandas directly, which
-    is what keeps the agent layer decoupled from the data layer.
-    """
-    df = _load_history_csv()
-    sku_rows = df[df["sku"] == sku]
+    if not re.match(r"^\s*SELECT\b", stripped, re.IGNORECASE):
+        raise ValueError("Only SELECT statements are allowed")
 
-    histories = []
-    for competitor, group in sku_rows.groupby("competitor"):
-        points = [
-            CompetitorPricePoint(
-                sku=sku,
-                competitor=competitor,
-                price=row["price"],
-                in_stock=bool(row["in_stock"]),
-                date=datetime.strptime(row["date"], "%Y-%m-%d").date(),
-            )
-            for _, row in group.iterrows()
-        ]
-        histories.append(
-            CompetitorPriceHistory(sku=sku, competitor=competitor, points=points)
-        )
-
-    return histories
-
-
-def get_all_skus_with_prices() -> list[str]:
-    """Every SKU that has at least some competitor data -- used by the
-    Researcher agent to know what to iterate over."""
-    df = _load_history_csv()
-    return sorted(df["sku"].unique().tolist())
+    upper = stripped.upper()
+    for keyword in _DISALLOWED_KEYWORDS:
+        if re.search(rf"\b{keyword}\b", upper):
+            raise ValueError(f"Disallowed keyword in generated SQL: {keyword}")
