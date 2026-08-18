@@ -55,43 +55,46 @@ def test_optimizer_favors_margin_floor_over_max_change():
 def test_optimizer_budget_constraint_binds():
     """Verify that category_budget constraint is actually enforced and influences the solution.
 
-    Use a low budget to force the optimizer to choose smaller discounts than would
-    otherwise maximize revenue. Without the budget constraint, the optimizer would
-    pick the maximum feasible prices to maximize revenue. With a tight budget, it
-    must settle for prices with less discount (i.e., closer to current prices).
+    Use elastic demand (|elasticity| > 1) so the optimizer wants to cut prices to maximize
+    revenue. Then show that a tight budget prevents the optimizer from cutting prices as
+    much as it would with a generous budget — proving the budget constraint actually changes
+    the outcome.
     """
-    inp = OptimizerInput(
-        skus=["P", "Q"],
-        costs={"P": 50.0, "Q": 50.0},
-        current_prices={"P": 100.0, "Q": 100.0},
-        stocks={"P": 10, "Q": 10},
-        elasticities={"P": -0.5, "Q": -0.5},
-        category_budget=5.0,  # Very tight budget: only allows ~5 units of total discount
-        min_margin_pct=0.20,  # 20% margin floor
-        max_price_change_pct=0.50,  # Allow 50% price change
-    )
-    out = optimize_category_prices(inp)
+    # Base inputs with elastic demand (-2.0), so cutting price increases revenue
+    base_inp = {
+        "skus": ["R"],
+        "costs": {"R": 40.0},
+        "current_prices": {"R": 100.0},
+        "stocks": {"R": 100},
+        "elasticities": {"R": -2.0},  # Elastic: cutting price boosts revenue
+        "min_margin_pct": 0.20,  # 20% margin floor (min price: 40 / 0.80 = 50.0)
+        "max_price_change_pct": 0.50,  # Allow up to 50% change (range: [50.0, 150.0])
+    }
 
-    # Verify all constraints are satisfied
-    for sku in inp.skus:
-        price = out.recommended_prices[sku]
-        margin = (price - inp.costs[sku]) / price
-        change_pct = abs(price - inp.current_prices[sku]) / inp.current_prices[sku]
-        assert margin >= inp.min_margin_pct - 1e-6
-        assert change_pct <= inp.max_price_change_pct + 1e-6
+    # Run with generous budget: optimizer should cut price significantly
+    inp_generous = OptimizerInput(category_budget=1000.0, **base_inp)
+    out_generous = optimize_category_prices(inp_generous)
+    price_generous = out_generous.recommended_prices["R"]
 
-    # Verify budget constraint: sum of (discount * demand) <= budget
-    total_discount_spend = 0.0
-    for sku in inp.skus:
-        price = out.recommended_prices[sku]
-        discount = max(0.0, inp.current_prices[sku] - price)
-        # Demand at this price
-        pct_change = (price - inp.current_prices[sku]) / inp.current_prices[sku]
-        demand = max(0.0, 1.0 + inp.elasticities[sku] * pct_change)
-        demand = min(demand, inp.stocks[sku])
-        total_discount_spend += discount * demand
+    # Run with tight budget: optimizer should cut price less (price higher)
+    inp_tight = OptimizerInput(category_budget=1.0, **base_inp)
+    out_tight = optimize_category_prices(inp_tight)
+    price_tight = out_tight.recommended_prices["R"]
 
-    assert total_discount_spend <= inp.category_budget + 1e-6, (
-        f"Total discount spend {total_discount_spend:.2f} exceeds budget {inp.category_budget}. "
-        f"Budget constraint was not enforced."
+    # Verify both satisfy margin and change constraints
+    for price in [price_generous, price_tight]:
+        margin = (price - base_inp["costs"]["R"]) / price
+        change_pct = (
+            abs(price - base_inp["current_prices"]["R"])
+            / base_inp["current_prices"]["R"]
+        )
+        assert margin >= base_inp["min_margin_pct"] - 1e-6
+        assert change_pct <= base_inp["max_price_change_pct"] + 1e-6
+
+    # The tight budget must result in a higher price (less discount) than generous budget.
+    # This proves the budget constraint is binding and changes the optimizer's choice.
+    assert price_tight > price_generous, (
+        f"With elastic demand, a tight budget (1.0) should force a higher price than a generous "
+        f"budget (1000.0). Got tight={price_tight}, generous={price_generous}. "
+        f"Budget constraint is not binding."
     )
