@@ -5,3 +5,4 @@ numpy
 faker
 google-genai
 apscheduler
+pulp
