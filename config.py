@@ -30,10 +30,15 @@ if not GEMINI_API_KEY:
     )
 
 # --- Model ---------------------------------------------------------------
-# Only the Decision agent calls this. Flash is fast and cheap enough for
-# a daily batch job over ~50 SKUs, and supports schema-constrained JSON
-# output natively, which is why we picked it over a bigger model.
-GEMINI_MODEL = "gemini-2.0-flash"
+# Called by the Decision agent (price recommendations) and the Researcher
+# agent (SQL/RAG retrieval). Flash is fast and cheap enough for a daily
+# batch job over ~50 SKUs, and supports schema-constrained JSON output
+# natively, which is why we picked it over a bigger model.
+# NOTE: gemini-2.0-flash and gemini-2.5-flash were both retired by Google
+# (confirmed 404 on live calls as of 2026-08-19). Google's own 404 error
+# body named gemini-3.6-flash as the replacement -- update this string
+# again if it's ever retired too.
+GEMINI_MODEL = "gemini-3.6-flash"
 
 # --- Human-in-the-loop ----------------------------------------------------
 # Recommendations at or above this confidence auto-execute. Below it,

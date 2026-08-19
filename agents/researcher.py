@@ -19,23 +19,21 @@ import config
 from models import ResearchBatch
 from db.connection import get_connection
 from data.price_source import fetch_batch
-from agents.llm_client import RunCostTracker
 
 
 def run_researcher(catalog: pd.DataFrame, run_id: str = None) -> ResearchBatch:
     """Pulls competitor price history for every SKU in the given
-    catalog DataFrame. Uses a single batch LLM call to generate one SQL
-    query covering all SKUs, instead of one call per SKU.
+    catalog DataFrame via one parameterized SQL query covering every
+    SKU, instead of one query per SKU.
     """
     run_id = run_id or str(uuid.uuid4())[:8]
 
     conn = get_connection(config.DB_PATH)
-    cost_tracker = RunCostTracker()
     skus = catalog["sku"].tolist()
 
     errors = []
     try:
-        histories_by_sku = fetch_batch(conn, skus, cost_tracker)
+        histories_by_sku = fetch_batch(conn, skus)
     except Exception as e:
         histories_by_sku = {}
         errors.append(f"batch retrieval failed: {e}")
