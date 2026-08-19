@@ -18,7 +18,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import uuid
-import pandas as pd
 
 import config
 from agents.researcher import run_researcher
@@ -26,13 +25,16 @@ from agents.analyst import run_analyst
 from agents.decision import run_decision
 from agents.approval import run_approval
 from audit.logger import log_event
+from db.connection import get_connection
+from db.catalog_repo import get_catalog_df, update_price
 
 
 def run_pipeline() -> dict:
     run_id = str(uuid.uuid4())[:8]
     print(f"=== Pricing pipeline run {run_id} ===\n")
 
-    catalog = pd.read_csv(config.CATALOG_PATH)
+    conn = get_connection(config.DB_PATH)
+    catalog = get_catalog_df(conn)
 
     # --- Researcher ---
     print("[1/4] Researcher agent: gathering competitor prices...")
@@ -71,8 +73,11 @@ def run_pipeline() -> dict:
     for r in results:
         log_event(run_id, "approval", "execution_result", r.model_dump(mode="json"))
 
-    # Persist any executed price changes back to the catalog file.
-    catalog.to_csv(config.CATALOG_PATH, index=False)
+    # Persist any executed price changes to the database.
+    for r in results:
+        if r.executed:
+            update_price(conn, r.sku, r.new_price)
+    conn.close()
 
     executed_count = sum(1 for r in results if r.executed)
     print(
