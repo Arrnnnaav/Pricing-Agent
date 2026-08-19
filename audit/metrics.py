@@ -5,7 +5,12 @@ needed. See design spec section 7 for the metric definitions."""
 
 from audit.logger import read_run
 
-_HALLUCINATION_SAFE_WORDS = ("trend", "elasticity")
+# A recommendation citing "trend" as justification is only credible if
+# the Analyst's own computed trend actually moved by more than this --
+# below it, day-to-day noise in a 7-day window, not a real trend. Anchors
+# the hallucination check to a number the model can't talk around,
+# instead of trusting whether it used the word "trend" in its reasoning.
+_TREND_NOISE_THRESHOLD_PCT = 0.01
 
 
 def compute_run_metrics(run_id: str) -> dict:
@@ -46,15 +51,15 @@ def compute_run_metrics(run_id: str) -> dict:
 
     # A recommendation is only flagged as a possible hallucination if
     # BOTH: its price falls outside the SKU's competitor price range,
-    # AND its reasoning lacks a safe word. Reasoning alone (the old
-    # logic) flagged every optimizer-derived recommendation, since their
-    # templated reasoning never mentions "trend"/"elasticity" -- but
-    # LP-derived prices are the least likely to be hallucinated.
+    # AND the Analyst's own computed trend doesn't actually justify going
+    # outside that range (abs(avg_competitor_trend_pct) is below the
+    # noise threshold). This is anchored to a real number from the
+    # Analyst stage rather than whether the model's reasoning text
+    # happens to contain the word "trend" -- a model can claim a trend
+    # exists without one actually being in the data, and the old
+    # lexical check couldn't catch that.
     hallucination_flags = []
     for rec in all_recs:
-        reasoning = rec.get("reasoning", "").lower()
-        has_safe_word = any(word in reasoning for word in _HALLUCINATION_SAFE_WORDS)
-
         min_price = rec.get("min_competitor_price")
         max_price = rec.get("max_competitor_price")
         price = rec.get("recommended_price")
@@ -65,7 +70,12 @@ def compute_run_metrics(run_id: str) -> dict:
         else:
             out_of_range = price < min_price or price > max_price
 
-        if out_of_range and not has_safe_word:
+        trend = rec.get("avg_competitor_trend_pct")
+        trend_justifies_it = (
+            trend is not None and abs(trend) >= _TREND_NOISE_THRESHOLD_PCT
+        )
+
+        if out_of_range and not trend_justifies_it:
             hallucination_flags.append(rec.get("sku"))
 
     return {
