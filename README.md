@@ -138,9 +138,8 @@ slack_webhook.py  FastAPI receiver for Slack approval button clicks
 
 ## Design notes
 
-Full design history lives in
-`docs/superpowers/specs/2026-08-19-enterprise-pricing-agent-design.md` —
-including a documented reversal worth reading: an earlier version had
+See [DECISIONS.md](DECISIONS.md) for the reasoning log and [FLOW.md](FLOW.md)
+for the current call graph. Worth reading: a documented reversal — an earlier version had
 the Researcher agent generate its SQL via an LLM call (a "SQL/RAG"
 pattern). Implementation review found the query never actually varied in
 shape between calls — every run needed identical data — so the LLM call
