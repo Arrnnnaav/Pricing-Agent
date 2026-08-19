@@ -212,3 +212,83 @@ needed, reuses the existing JSONL log.
 - Geofencing.
 - Streamlit/web dashboard.
 - Real elasticity estimation (config-driven constants only).
+
+## Revision — 2026-08-19: SQL/RAG reversed after implementation review
+
+Section 2 above (as planned and as implemented) turned out to be wrong.
+Left in place rather than edited, because the reasoning is more useful
+than a silently-corrected diagram.
+
+**What shipped first:** exactly section 2 — an LLM call per batch that
+wrote a SQL `SELECT` against `competitor_prices`, validated by a
+read-only guard, then executed. It worked: 50/50 SKUs retrieved
+correctly against live data.
+
+**What a second pass caught:** "worked" isn't the same question as
+"needed." The prompt template
+(`_SQL_PROMPT_TEMPLATE` in the original `data/price_source.py`) had
+exactly one shape — `SELECT * FROM competitor_prices WHERE sku IN
+(...)`, with only the SKU list changing between calls. Every run needs
+identical data: the full 7-day window, every competitor, in-stock and
+out-of-stock rows both (out-of-stock rows are what keep `trend_pct`
+honest). There was no real fork in what the system needed the LLM to
+decide — the "RAG" framing described a capability the implementation
+never actually exercised.
+
+That's a cost, not a feature, once named:
+
+- **Hallucination risk** on a step with zero actual query-shape
+  variance to justify carrying it.
+- **Latency and per-call cost** for work a parameterized query does
+  identically.
+- **A new single point of failure** in the first pipeline stage
+  everything downstream depends on — this was not hypothetical:
+  `config.GEMINI_MODEL` going stale (`gemini-2.0-flash`, then
+  `gemini-2.5-flash`, both retired by Google mid-project) took the
+  Researcher stage down and zeroed the entire run, twice, before the
+  model string was corrected. Removing the LLM call from Researcher
+  removes that whole failure class from the one stage nothing else can
+  route around.
+
+**Option considered and rejected:** make the query shape genuinely vary
+(e.g. let the LLM choose between a recent-snapshot query, a full
+trend-window query, an in-stock-only query, based on what the Analyst
+needs). Rejected because the Analyst's need doesn't actually vary run to
+run — it always wants the full window. Branching the query on an LLM
+decision that has no real input to respond to isn't restoring the RAG
+justification, it's manufacturing a decision point to make one exist.
+The honest fix was removing the call, not disguising it better.
+
+**What shipped instead:** `data/price_source.py`'s `fetch_batch` is now
+one parameterized query — `conn.execute("SELECT * FROM
+competitor_prices WHERE sku IN (?,?,...)", skus)`. `assert_readonly_sql`
+(the guard from section 2) stays in the file, unused today, as cheap
+insurance for any future retrieval path that does need to vary its
+query shape for a real reason.
+
+**Where the genuine "retrieval needs judgment" story still lives in this
+codebase:** `tools/semantic_matcher.py` — fuzzy-matching a competitor's
+free-text listing name ("Dell Vortex Pro 8GB") to our SKU code
+(`LAP-0001`) is a case where deterministic string equality actually
+fails and judgment helps. That tool carries the RAG-flavored weight this
+section originally assigned to Researcher.
+
+**Also fixed in the same pass — the hallucination heuristic (section
+7):** the shipped version required the recommendation's *reasoning
+text* to contain the word "trend" or "elasticity" to avoid being
+flagged — a lexical check a model can satisfy by writing the word
+without a real trend existing in the data. Fixed to cross-reference the
+Analyst's actual computed `avg_competitor_trend_pct` against a noise
+threshold (`0.01`) instead of trusting the model's own explanation of
+itself. Same principle as `guardrails.py`: check the number, not the
+narrative.
+
+**How this was caught:** not by the per-task implementation reviews —
+each task's diff looked correct in isolation (the guard worked, the SQL
+executed, 50/50 SKUs came back). It took a step back after a live
+end-to-end run, prompted by direct questioning of *why* the LLM call was
+there rather than *whether* it worked, to notice the query never
+actually needed to vary. "Does this pass its tests" and "does this
+design decision hold up" are different questions; this revision is what
+it looks like when the second one gets asked after the first one already
+said yes.
