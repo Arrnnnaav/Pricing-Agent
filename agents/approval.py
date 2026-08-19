@@ -1,10 +1,15 @@
 """
 Approval agent / gate: the human-in-the-loop checkpoint. A
-recommendation with confidence >= AUTO_APPROVE_CONFIDENCE_THRESHOLD (and
-no guardrail violation, and marked reversible) auto-executes. Everything
-else goes to a CLI prompt today -- built so main.py doesn't need to
-change when we swap this for a real Slack integration later; only this
-file's "ask a human" step changes.
+recommendation auto-executes if its confidence >=
+AUTO_APPROVE_CONFIDENCE_THRESHOLD AND it has no guardrail violation AND
+it's marked reversible. Everything else routes through whichever "ask a
+human" implementation is active: _ask_human_slack (real Slack
+Approve/Reject buttons, via agents/slack_approval.py) if
+config.SLACK_BOT_TOKEN is set, otherwise _ask_human_cli (a terminal
+input() prompt) as the fallback for local/offline runs. main.py doesn't
+need to know or care which one is active -- both implement the same
+"return True for approved, False for rejected" contract behind the
+module-level `_ask_human` name.
 """
 
 import sys

@@ -9,6 +9,7 @@ guardrail math from guardrails.py -- no LLM call happens in this file.
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import statistics
@@ -28,9 +29,13 @@ MIN_DELTA_PCT_TO_FLAG = 0.03
 
 def _catalog_item(row: pd.Series) -> CatalogItem:
     return CatalogItem(
-        sku=row["sku"], name=row["name"], brand=row["brand"],
-        category=row["category"], our_price=row["our_price"],
-        cost=row["cost"], stock=row["stock"],
+        sku=row["sku"],
+        name=row["name"],
+        brand=row["brand"],
+        category=row["category"],
+        our_price=row["our_price"],
+        cost=row["cost"],
+        stock=row["stock"],
     )
 
 
@@ -40,9 +45,7 @@ def analyze_sku(item: CatalogItem, histories: list) -> SkuAnalysis:
     Only in-stock competitor prices count toward min/max/avg -- an
     out-of-stock listing isn't a price you could actually be undercut by.
     """
-    in_stock_latest = [
-        h.latest.price for h in histories if h.latest.in_stock
-    ]
+    in_stock_latest = [h.latest.price for h in histories if h.latest.in_stock]
 
     if not in_stock_latest:
         return SkuAnalysis(
@@ -106,14 +109,23 @@ def run_analyst(catalog: pd.DataFrame, research: ResearchBatch) -> AnalysisBatch
 
 
 if __name__ == "__main__":
+    from db.connection import get_connection
+    from db.catalog_repo import get_catalog_df
     from agents.researcher import run_researcher
 
-    catalog = pd.read_csv(config.CATALOG_PATH)
+    conn = get_connection(config.DB_PATH)
+    catalog = get_catalog_df(conn)
+    conn.close()
+
     research = run_researcher(catalog)
     analysis = run_analyst(catalog, research)
 
-    print(f"Run {analysis.run_id}: {analysis.flagged_count}/{len(analysis.analyses)} SKUs flagged")
+    print(
+        f"Run {analysis.run_id}: {analysis.flagged_count}/{len(analysis.analyses)} SKUs flagged"
+    )
     for a in analysis.analyses:
         if a.needs_decision:
-            print(f"  {a.sku}: our=${a.our_price:.2f} avg_competitor=${a.avg_competitor_price:.2f} "
-                  f"delta={a.price_delta_pct:+.1%} trend={a.avg_competitor_trend_pct:+.1%}")
+            print(
+                f"  {a.sku}: our=${a.our_price:.2f} avg_competitor=${a.avg_competitor_price:.2f} "
+                f"delta={a.price_delta_pct:+.1%} trend={a.avg_competitor_trend_pct:+.1%}"
+            )

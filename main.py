@@ -65,7 +65,20 @@ def run_pipeline() -> dict:
         conn.close()
         return {"run_id": run_id, "status": "stopped_on_budget"}
 
-    log_event(run_id, "decision", "batch_complete", decisions.model_dump(mode="json"))
+    # Enrich each logged recommendation with the Analyst's competitor
+    # price range for that SKU (not part of PriceRecommendation itself --
+    # audit-log-only data) so audit.metrics.compute_run_metrics can check
+    # whether a recommended price actually falls outside the competitive
+    # range, instead of flagging on reasoning text alone.
+    decisions_data = decisions.model_dump(mode="json")
+    analyses_by_sku = {a.sku: a for a in analysis.analyses}
+    for rec_data in decisions_data["recommendations"]:
+        a = analyses_by_sku.get(rec_data["sku"])
+        if a is not None:
+            rec_data["min_competitor_price"] = a.min_competitor_price
+            rec_data["max_competitor_price"] = a.max_competitor_price
+
+    log_event(run_id, "decision", "batch_complete", decisions_data)
     print(f"      {len(decisions.recommendations)} recommendations generated\n")
 
     # --- Approval + execution ---

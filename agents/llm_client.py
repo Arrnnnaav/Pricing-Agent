@@ -45,6 +45,12 @@ class RunCostTracker:
         self.total_output_tokens = 0
         self.estimated_cost_usd = 0.0
         self._cache: dict[str, BaseModel] = {}
+        # One increment per generate_structured() call (not per retry) --
+        # used by audit.metrics.compute_run_metrics to compute a real
+        # schema_success_rate (successes / attempts) instead of inferring
+        # it from whether any output happened to come out the other end.
+        self.generate_attempts = 0
+        self.generate_successes = 0
 
     def record(self, input_tokens: int, output_tokens: int) -> None:
         self.calls += 1
@@ -96,8 +102,11 @@ def generate_structured(
     Results are cached by prompt string, so identical prompts within the
     same run skip the LLM call entirely.
     """
+    cost_tracker.generate_attempts += 1
+
     cached = cost_tracker.get_cached(prompt)
     if cached is not None:
+        cost_tracker.generate_successes += 1
         return cached
 
     cost_tracker.check_within_budget()
@@ -130,6 +139,7 @@ def generate_structured(
                 else response.parsed
             )
             cost_tracker.put_cached(prompt, result)
+            cost_tracker.generate_successes += 1
             return result
 
         except (ValidationError, ValueError, Exception) as e:
@@ -139,8 +149,12 @@ def generate_structured(
                 continue
 
     if fallback_factory is not None:
+        # A fallback is still a successful call from the caller's
+        # perspective (degraded, but not a raised exception) -- only
+        # count generate_structured as a failure if it raises below.
         result = fallback_factory()
         cost_tracker.put_cached(prompt, result)
+        cost_tracker.generate_successes += 1
         return result
 
     raise RuntimeError(

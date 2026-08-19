@@ -27,6 +27,7 @@ from models import (
 )
 from agents.guardrails import evaluate_guardrails
 from agents.llm_client import generate_structured, RunCostTracker
+from audit.logger import log_event
 from tools.registry import call_tool, register_all_tools
 from tools.optimizer import OptimizerOutput
 
@@ -159,7 +160,7 @@ def decide_for_category(
     skus: list[str],
     catalog_by_sku: dict,
     analyses_by_sku: dict,
-    cost_tracker: RunCostTracker,
+    run_id: str,
 ) -> list:
     """For 2+ flagged SKUs sharing a category: run the LP optimizer
     once for the whole group, then build one PriceRecommendation per
@@ -181,7 +182,7 @@ def decide_for_category(
         "min_margin_pct": config.MIN_MARGIN_PCT,
         "max_price_change_pct": config.MAX_PRICE_CHANGE_PCT,
     }
-    output: OptimizerOutput = call_tool("optimizer", optimizer_input)
+    output: OptimizerOutput = call_tool("optimizer", optimizer_input, run_id=run_id)
 
     recommendations = []
     for sku in skus:
@@ -225,7 +226,7 @@ def run_decision(catalog: pd.DataFrame, analysis: AnalysisBatch) -> DecisionBatc
             try:
                 recommendations.extend(
                     decide_for_category(
-                        skus, catalog_by_sku, analyses_by_sku, cost_tracker
+                        skus, catalog_by_sku, analyses_by_sku, analysis.run_id
                     )
                 )
             except Exception as e:
@@ -239,14 +240,33 @@ def run_decision(catalog: pd.DataFrame, analysis: AnalysisBatch) -> DecisionBatc
             except Exception as e:
                 print(f"  [decision failed for {sku}]: {e}")
 
+    # Records how many generate_structured calls were attempted vs.
+    # succeeded (including via the fallback path) for this run, so
+    # audit.metrics.compute_run_metrics can compute a real
+    # schema_success_rate instead of inferring it from output presence.
+    log_event(
+        analysis.run_id,
+        "decision",
+        "llm_stats",
+        {
+            "generate_attempts": cost_tracker.generate_attempts,
+            "generate_successes": cost_tracker.generate_successes,
+        },
+    )
+
     return DecisionBatch(run_id=analysis.run_id, recommendations=recommendations)
 
 
 if __name__ == "__main__":
+    from db.connection import get_connection
+    from db.catalog_repo import get_catalog_df
     from agents.researcher import run_researcher
     from agents.analyst import run_analyst
 
-    catalog = pd.read_csv(config.CATALOG_PATH)
+    conn = get_connection(config.DB_PATH)
+    catalog = get_catalog_df(conn)
+    conn.close()
+
     research = run_researcher(catalog)
     analysis = run_analyst(catalog, research)
     decisions = run_decision(catalog, analysis)
