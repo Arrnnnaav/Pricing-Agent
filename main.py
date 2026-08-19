@@ -62,6 +62,7 @@ def run_pipeline() -> dict:
         # log it and end the run cleanly with whatever we have so far.
         log_event(run_id, "decision", "budget_exceeded", {"error": str(e)})
         print(f"      Run stopped: {e}")
+        conn.close()
         return {"run_id": run_id, "status": "stopped_on_budget"}
 
     log_event(run_id, "decision", "batch_complete", decisions.model_dump(mode="json"))
