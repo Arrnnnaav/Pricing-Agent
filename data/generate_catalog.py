@@ -103,7 +103,10 @@ def make_product_name(brand: str, category: str) -> str:
     model_word = random.choice(MODEL_WORDS)
     suffix_pool = ["Pro", "Air", "Max", "Plus", "Lite", "SE", str(random.randint(2, 9))]
     suffix = random.choice(suffix_pool)
-    return f"{brand} {model_word} {suffix}"
+    # A model number keeps names unique at 500+ SKUs (real catalogs have
+    # them too, and they are what makes listing -> SKU matching tractable).
+    model_no = f"{random.choice('ABCKMSTX')}{random.randint(10, 99)}"
+    return f"{brand} {model_word} {suffix} {model_no}"
 
 
 def make_sku_code(category: str, index: int) -> str:

@@ -163,6 +163,9 @@ class PriceRecommendation(BaseModel):
         "as not reversible, which forces human review regardless of confidence.",
     )
     guardrail_violation: GuardrailViolation = GuardrailViolation.NONE
+    # Which path produced the price: the metrics' hallucination check only
+    # applies to LLM output; the optimizer prices off-market on purpose.
+    source: str = "llm"  # "llm" | "optimizer"
 
     @field_validator("recommended_price")
     @classmethod
@@ -190,6 +193,7 @@ class ApprovalOutcome(str, Enum):
     HUMAN_APPROVED = "human_approved"
     HUMAN_REJECTED = "human_rejected"
     TIMED_OUT = "timed_out"
+    QUEUED_FOR_REVIEW = "queued_for_review"  # APPROVAL_MODE=queue: not executed yet
 
 
 class ExecutionResult(BaseModel):

@@ -1,0 +1,91 @@
+{
+  "skus": 500,
+  "test_days": 30,
+  "strategies": {
+    "static": {
+      "gross_profit": 18297275,
+      "revenue": 51495747,
+      "profit_vs_static_pct": 0.0,
+      "share_of_oracle_uplift_pct": 0.0,
+      "avg_margin_pct": 35.53,
+      "guardrail_violations": 0,
+      "price_changes": 0
+    },
+    "match_market": {
+      "gross_profit": 18542638,
+      "revenue": 50448572,
+      "profit_vs_static_pct": 1.34,
+      "share_of_oracle_uplift_pct": 29.3,
+      "avg_margin_pct": 36.76,
+      "guardrail_violations": 0,
+      "price_changes": 14975
+    },
+    "match_guarded": {
+      "gross_profit": 18542638,
+      "revenue": 50448572,
+      "profit_vs_static_pct": 1.34,
+      "share_of_oracle_uplift_pct": 29.3,
+      "avg_margin_pct": 36.76,
+      "guardrail_violations": 0,
+      "price_changes": 14975
+    },
+    "pipeline": {
+      "gross_profit": 18750904,
+      "revenue": 48492829,
+      "profit_vs_static_pct": 2.48,
+      "share_of_oracle_uplift_pct": 54.1,
+      "avg_margin_pct": 38.67,
+      "guardrail_violations": 0,
+      "price_changes": 3524
+    },
+    "oracle": {
+      "gross_profit": 19135451,
+      "revenue": 47628752,
+      "profit_vs_static_pct": 4.58,
+      "share_of_oracle_uplift_pct": 100.0,
+      "avg_margin_pct": 40.18,
+      "guardrail_violations": 0,
+      "price_changes": 14964
+    }
+  },
+  "elasticity": {
+    "Laptops": {
+      "true_category_mean": -2.0,
+      "estimated": -2.115
+    },
+    "Smartphones": {
+      "true_category_mean": -2.4,
+      "estimated": -2.589
+    },
+    "Headphones": {
+      "true_category_mean": -2.8,
+      "estimated": -2.736
+    },
+    "Smartwatches": {
+      "true_category_mean": -2.2,
+      "estimated": -1.748
+    },
+    "Tablets": {
+      "true_category_mean": -2.0,
+      "estimated": -2.184
+    },
+    "Monitors": {
+      "true_category_mean": -1.8,
+      "estimated": -1.619
+    },
+    "Accessories": {
+      "true_category_mean": -3.0,
+      "estimated": -2.978
+    }
+  },
+  "elasticity_mean_abs_error": 0.172,
+  "pipeline_routing": {
+    "flagged": 6989,
+    "recommendations": 6989,
+    "auto_approved": 6625,
+    "escalated": 343,
+    "blocked_by_guardrail": 21,
+    "single_sku_skipped": 0
+  },
+  "seconds": 33.6
+}

@@ -1,5 +1,5 @@
 """
-Decision agent: for every SKU the Analyst flagged, asks Gemini to
+Decision agent: for every SKU the Analyst flagged, asks the configured LLM (local Ollama by default) to
 recommend a new price with a confidence score and reasoning, returned
 as a schema-validated PriceRecommendation. After the LLM responds, we
 re-run guardrails.py against its ACTUAL recommended price (not just the
@@ -177,10 +177,19 @@ def decide_for_category(
         "costs": {s: items[s].cost for s in skus},
         "current_prices": {s: items[s].our_price for s in skus},
         "stocks": {s: items[s].stock for s in skus},
-        "elasticities": {s: -1.0 for s in skus},  # config-driven assumption, see spec
+        # Per-category elasticity, estimated from sales history by
+        # simulation/elasticity.py when available (config default otherwise).
+        "elasticities": {s: config.category_elasticity(catalog_by_sku[s]["category"]) for s in skus},
         "category_budget": sum(items[s].our_price for s in skus) * 0.1,
         "min_margin_pct": config.MIN_MARGIN_PCT,
         "max_price_change_pct": config.MAX_PRICE_CHANGE_PCT,
+        # Competitor-aware demand: price relative to the market average.
+        "reference_prices": {
+            s: analyses_by_sku[s].avg_competitor_price or items[s].our_price for s in skus
+        },
+        "objective": "profit",
+        "low_stock_threshold": config.LOW_STOCK_THRESHOLD_UNITS,
+        "price_steps": 21,
     }
     output: OptimizerOutput = call_tool("optimizer", optimizer_input, run_id=run_id)
 
@@ -194,10 +203,15 @@ def decide_for_category(
                 sku=sku,
                 current_price=item.our_price,
                 recommended_price=new_price,
-                confidence=0.85,  # optimizer-derived recommendations use a fixed confidence;
-                # they're math-backed, not an LLM guess, but still below
-                # AUTO_APPROVE_CONFIDENCE_THRESHOLD by design so a human
-                # sees the first batch of optimizer output.
+                # Optimizer output is math-backed, so confidence encodes the
+                # auto-approval policy rather than a model's self-report:
+                # small moves auto-execute, larger ones go to a human.
+                confidence=(
+                    config.OPTIMIZER_SMALL_CHANGE_CONFIDENCE
+                    if abs(new_price - item.our_price) / item.our_price
+                    <= config.OPTIMIZER_AUTO_MAX_CHANGE_PCT
+                    else config.OPTIMIZER_LARGE_CHANGE_CONFIDENCE
+                ),
                 reasoning=(
                     f"LP-optimized category price for {catalog_by_sku[sku]['category']}: "
                     f"maximizes group revenue within budget/margin/stock constraints."
@@ -205,6 +219,7 @@ def decide_for_category(
                 projected_margin_pct=projected_margin,
             )
             rec.guardrail_violation = evaluate_guardrails(item, new_price)
+            rec.source = "optimizer"
             recommendations.append(rec)
         except Exception as e:
             print(f"  [optimizer recommendation failed for {sku}]: {e}")
@@ -248,10 +263,7 @@ def run_decision(catalog: pd.DataFrame, analysis: AnalysisBatch) -> DecisionBatc
         analysis.run_id,
         "decision",
         "llm_stats",
-        {
-            "generate_attempts": cost_tracker.generate_attempts,
-            "generate_successes": cost_tracker.generate_successes,
-        },
+        cost_tracker.stats(),
     )
 
     return DecisionBatch(run_id=analysis.run_id, recommendations=recommendations)

@@ -1,31 +1,39 @@
-"""Registers the existing synthetic competitor-price generator as a
-formal tool, so it goes through the same input/output validation and
-audit trail as optimizer/semantic_matcher, instead of being called as a
-bare function. Still synthetic data -- see the design spec's "out of
-scope" section for why real scraping isn't implemented."""
+"""Registers the synthetic competitor feed as a formal tool, so it goes
+through the same input/output validation and audit trail as the optimizer
+and matcher. It returns what a real scraper would: competitor listings
+with free-text names and no SKU codes (see data/listings.py). Still
+synthetic -- real scraping is out of scope for ToS reasons."""
 
 import pandas as pd
 from pydantic import BaseModel
 
+import config
+from data.listings import to_listings
 from data.mock_price_generator import generate_price_history
 
 
 class ScrapeInput(BaseModel):
-    skus: list[str]
-    days: int = 7
+    catalog: list[dict]  # sku, name, brand, our_price
+    days: int = config.PRICE_HISTORY_DAYS
+    decoy_rate: float = 0.1
+
+
+class Listing(BaseModel):
+    competitor: str
+    listing_name: str
+    price: float
+    in_stock: int
+    date: str
+    true_sku: str | None = None  # ground truth, used only to score the matcher
 
 
 class ScrapeOutput(BaseModel):
-    rows_generated: int
+    listings: list[Listing]
 
 
 def scrape_competitor_prices(inp: ScrapeInput) -> ScrapeOutput:
-    fake_catalog = pd.DataFrame(
-        {
-            "sku": inp.skus,
-            "our_price": [100.0]
-            * len(inp.skus),  # placeholder price for the walk's target
-        }
-    )
-    df = generate_price_history(fake_catalog, days=inp.days)
-    return ScrapeOutput(rows_generated=len(df))
+    catalog = pd.DataFrame(inp.catalog)
+    history = generate_price_history(catalog, days=inp.days)
+    df = to_listings(catalog, history, decoy_rate=inp.decoy_rate)
+    df = df.astype(object).where(pd.notna(df), None)  # NaN -> None for decoys
+    return ScrapeOutput(listings=[Listing(**r) for r in df.to_dict(orient="records")])

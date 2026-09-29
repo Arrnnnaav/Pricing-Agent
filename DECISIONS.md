@@ -164,3 +164,27 @@ one implementation pass, chose one pass — executed as a 15-task plan via
 `superpowers:subagent-driven-development` (fresh subagent per task, task-
 level review + fix loop, then one final whole-branch review + single fix
 wave, then merged to `master`).
+
+
+## 2026-09-30: Gemini replaced by a local model; backtest added
+
+**Why.** Free-tier Gemini quotas ran out in a single day of testing, and
+Google retired model IDs twice (see above). A daily batch job should not
+depend on either. The only LLM call is the single-SKU decision; a local
+Qwen3-4B through Ollama with JSON-schema-constrained output (`format`) has
+no quota, costs $0 and keeps pricing data on the machine.
+`LLM_PROVIDER=openai_compat` swaps in OpenRouter or NIM without code changes.
+
+**What the backtest changed.**
+- The first elasticity estimator was biased toward zero (stock-capped
+  days, and a through-origin fit on SKUs that sit persistently off
+  market). The LP optimizer then under-priced the risk of raising prices,
+  and the pipeline lost money (-0.56% vs static). Per-SKU fits with
+  capped days excluded cut the error from 0.66 to 0.17 and turned the
+  result to +2.48%.
+- A fixed optimizer confidence of 0.85 sent every recommendation to a
+  human (228 a day). The auto-approval policy is now explicit: changes of
+  5% or less that are guardrail-clean and reversible auto-execute, and
+  anything else is escalated (about 11 a day).
+- Tools registered but unused (scraper, matcher) are now the live
+  ingestion path, measured against ground truth.

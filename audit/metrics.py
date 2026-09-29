@@ -59,7 +59,9 @@ def compute_run_metrics(run_id: str) -> dict:
     # exists without one actually being in the data, and the old
     # lexical check couldn't catch that.
     hallucination_flags = []
-    for rec in all_recs:
+    # Only LLM-sourced prices can hallucinate; optimizer prices are
+    # deliberately off-market (profit optimum) and bounded by guardrails.
+    for rec in [r for r in all_recs if r.get("source", "llm") == "llm"]:
         min_price = rec.get("min_competitor_price")
         max_price = rec.get("max_competitor_price")
         price = rec.get("recommended_price")
@@ -81,5 +83,7 @@ def compute_run_metrics(run_id: str) -> dict:
     return {
         "schema_success_rate": schema_success_rate,
         "hallucination_flags": hallucination_flags,
+        "llm_recommendations": sum(1 for r in all_recs if r.get("source", "llm") == "llm"),
+        "optimizer_recommendations": sum(1 for r in all_recs if r.get("source") == "optimizer"),
         "tool_success_rate": tool_success_rate,
     }

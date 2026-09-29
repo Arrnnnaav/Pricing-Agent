@@ -16,34 +16,41 @@ from dotenv import load_dotenv
 # (useful for CI/deployment, where you wouldn't ship a .env file at all).
 load_dotenv()
 
-# --- API key -----------------------------------------------------------
-# We read this from an environment variable, never from source code.
-# Either put it in a .env file (see .env.example) or run:
-#   export GEMINI_API_KEY="your-key-here"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# --- LLM provider ----------------------------------------------------------
+# Only the Decision agent's single-SKU path calls an LLM (multi-SKU
+# categories go through the LP optimizer, no LLM). Default is a local model
+# via Ollama: no API key, no daily quota, $0 per call, and pricing data never
+# leaves the machine. Any OpenAI-compatible gateway (OpenRouter free models,
+# NVIDIA NIM) can be swapped in with LLM_PROVIDER=openai_compat.
+#   ollama pull qwen3:4b-instruct
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")  # ollama | openai_compat
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+# First model is primary; the rest are a fallback chain tried in order.
+LLM_MODELS = [
+    m.strip()
+    for m in os.environ.get("LLM_MODELS", "qwen3:4b-instruct").split(",")
+    if m.strip()
+]
+OPENAI_COMPAT_BASE_URL = os.environ.get("OPENAI_COMPAT_BASE_URL", "https://openrouter.ai/api/v1")
+OPENAI_COMPAT_API_KEY = os.environ.get("OPENAI_COMPAT_API_KEY", "")
+LLM_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "120"))
 
-if not GEMINI_API_KEY:
-    raise RuntimeError(
-        "GEMINI_API_KEY is not set. Get a free key at "
-        "https://aistudio.google.com/apikey and run:\n"
-        "  export GEMINI_API_KEY='your-key-here'"
-    )
-
-# --- Model ---------------------------------------------------------------
-# Called by the Decision agent (price recommendations) and the Researcher
-# agent (SQL/RAG retrieval). Flash is fast and cheap enough for a daily
-# batch job over ~50 SKUs, and supports schema-constrained JSON output
-# natively, which is why we picked it over a bigger model.
-# NOTE: gemini-2.0-flash and gemini-2.5-flash were both retired by Google
-# (confirmed 404 on live calls as of 2026-08-19). Google's own 404 error
-# body named gemini-3.6-flash as the replacement -- update this string
-# again if it's ever retired too.
-GEMINI_MODEL = "gemini-3.6-flash"
+# Cost tracking for the cost guard. Local inference is free; set these to a
+# hosted model's per-1M-token prices when using openai_compat.
+LLM_INPUT_COST_PER_1M = float(os.environ.get("LLM_INPUT_COST_PER_1M", "0"))
+LLM_OUTPUT_COST_PER_1M = float(os.environ.get("LLM_OUTPUT_COST_PER_1M", "0"))
 
 # --- Human-in-the-loop ----------------------------------------------------
 # Recommendations at or above this confidence auto-execute. Below it,
 # they go to the approval gate (CLI today, Slack later).
 AUTO_APPROVE_CONFIDENCE_THRESHOLD = 0.90
+
+# LP-optimizer recommendations: a change of at most this size (and
+# guardrail-clean, reversible) is routine and auto-executes; anything larger
+# is escalated to a human even though the optimizer is deterministic.
+OPTIMIZER_AUTO_MAX_CHANGE_PCT = 0.05
+OPTIMIZER_SMALL_CHANGE_CONFIDENCE = 0.92
+OPTIMIZER_LARGE_CHANGE_CONFIDENCE = 0.85
 
 # How long to wait for a human response before treating it as a timeout.
 APPROVAL_TIMEOUT_SECONDS = 300  # 5 minutes
@@ -74,9 +81,9 @@ MAX_COST_USD_PER_RUN = 1.00
 # across runs — useful for demos and for writing tests against known output.
 RANDOM_SEED = 42
 
-NUM_SKUS = 50
+NUM_SKUS = int(os.environ.get("NUM_SKUS", "500"))
 NUM_COMPETITORS = 4
-PRICE_HISTORY_DAYS = 7
+PRICE_HISTORY_DAYS = 14
 
 # How much a competitor's price is allowed to jitter day-to-day, as a
 # fraction of the previous day's price (used by the random-walk generator).
@@ -103,3 +110,30 @@ AUDIT_LOG_PATH = os.path.join(AUDIT_DIR, "agent_audit.jsonl")
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
 SLACK_APPROVAL_CHANNEL = os.environ.get("SLACK_APPROVAL_CHANNEL", "#pricing-approvals")
+
+# How recommendations that need a human are handled:
+#   queue - non-blocking: written to the pending_approvals table and the run
+#           continues (default; right for a scheduled batch job)
+#   cli   - blocking terminal prompt (interactive demos)
+#   slack - Slack Block Kit buttons (requires SLACK_BOT_TOKEN)
+APPROVAL_MODE = os.environ.get(
+    "APPROVAL_MODE", "slack" if SLACK_BOT_TOKEN else "queue"
+)
+
+
+# --- Demand elasticity -------------------------------------------------------
+# Used by the LP optimizer. simulation/elasticity.py estimates these per
+# category from sales history and writes data/elasticity.json; until then a
+# conservative default is used.
+DEFAULT_ELASTICITY = -1.5
+ELASTICITY_PATH = os.path.join(DATA_DIR, "elasticity.json")
+
+
+def category_elasticity(category: str) -> float:
+    import json
+
+    try:
+        with open(ELASTICITY_PATH) as f:
+            return float(json.load(f).get(category, DEFAULT_ELASTICITY))
+    except (OSError, ValueError):
+        return DEFAULT_ELASTICITY

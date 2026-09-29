@@ -68,7 +68,7 @@ SQL later will want it back immediately.
 category, then per category:
 
 - **1 SKU in category** → `agents.llm_client.generate_structured(...)`
-  (Gemini call) → `PriceRecommendation` with real confidence + reasoning.
+  (LLM call, local Ollama by default) → `PriceRecommendation` with real confidence + reasoning.
   Retries on schema-validation failure; falls back to a rule-based
   recommendation (`fallback_factory`) after retries exhausted. Cache-checked
   first (`RunCostTracker.get_cached`/`put_cached`) to avoid re-paying for an

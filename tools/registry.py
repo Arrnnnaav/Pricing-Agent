@@ -25,6 +25,21 @@ class Tool:
 
 _REGISTRY: dict[str, Tool] = {}
 
+_MAX_LOGGED_ITEMS = 20
+
+
+def _summarize(value):
+    """Audit-log view of a tool input: large collections (the matcher's 500
+    candidate names, the scraper's catalog) are replaced by their size so
+    one ingest does not write tens of MB of repeated data."""
+    if isinstance(value, dict):
+        if len(value) > _MAX_LOGGED_ITEMS:
+            return f"<{len(value)} entries>"
+        return {k: _summarize(v) for k, v in value.items()}
+    if isinstance(value, list) and len(value) > _MAX_LOGGED_ITEMS:
+        return f"<{len(value)} items>"
+    return value
+
 
 def register(tool: Tool) -> None:
     _REGISTRY[tool.name] = tool
@@ -53,7 +68,7 @@ def call_tool(name: str, input_dict: dict, run_id: str = "unlogged") -> BaseMode
             "tool",
             name,
             {
-                "input": input_dict,
+                "input": _summarize(input_dict),
                 "success": success,
                 "latency_ms": latency_ms,
             },

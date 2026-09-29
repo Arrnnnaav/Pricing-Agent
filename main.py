@@ -17,6 +17,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import time
 import uuid
 
 import config
@@ -31,6 +32,7 @@ from db.catalog_repo import get_catalog_df, update_price
 
 def run_pipeline() -> dict:
     run_id = str(uuid.uuid4())[:8]
+    started = time.perf_counter()
     print(f"=== Pricing pipeline run {run_id} ===\n")
 
     conn = get_connection(config.DB_PATH)
@@ -54,7 +56,7 @@ def run_pipeline() -> dict:
     )
 
     # --- Decision ---
-    print("[3/4] Decision agent: requesting price recommendations from Gemini...")
+    print("[3/4] Decision agent: LP optimizer for multi-SKU categories, LLM for single SKUs...")
     try:
         decisions = run_decision(catalog, analysis)
     except RuntimeError as e:
@@ -86,7 +88,7 @@ def run_pipeline() -> dict:
 
     # --- Approval + execution ---
     print("[4/4] Approval gate: routing recommendations...")
-    results = run_approval(decisions.recommendations, catalog)
+    results = run_approval(decisions.recommendations, catalog, conn=conn, run_id=run_id)
     for r in results:
         log_event(run_id, "approval", "execution_result", r.model_dump(mode="json"))
 
@@ -109,6 +111,10 @@ def run_pipeline() -> dict:
             "skus_flagged": analysis.flagged_count,
             "recommendations": len(decisions.recommendations),
             "executed": executed_count,
+            "queued_for_review": sum(
+                1 for r in results if r.outcome.value == "queued_for_review"
+            ),
+            "seconds": round(time.perf_counter() - started, 2),
         },
     )
 

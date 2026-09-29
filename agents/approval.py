@@ -55,7 +55,25 @@ def _ask_human_slack(rec: PriceRecommendation) -> bool:
 # Swap point: set to _ask_human_slack to route through Slack instead of
 # the CLI. Kept as a module-level name (not hardcoded inline) so tests
 # can patch agents.approval._ask_human directly.
-_ask_human = _ask_human_cli if not config.SLACK_BOT_TOKEN else _ask_human_slack
+_ask_human = _ask_human_slack if config.APPROVAL_MODE == "slack" else _ask_human_cli
+
+# Set by run_approval when APPROVAL_MODE=queue: escalations are written to
+# pending_approvals instead of blocking the batch on a human.
+_queue_conn = None
+_queue_run_id = None
+
+
+def _enqueue_for_review(rec: PriceRecommendation) -> None:
+    from datetime import datetime, timezone
+
+    _queue_conn.execute(
+        """INSERT INTO pending_approvals (run_id, sku, current_price, recommended_price,
+           confidence, guardrail_violation, reasoning, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (_queue_run_id, rec.sku, rec.current_price, rec.recommended_price, rec.confidence,
+         rec.guardrail_violation.value, rec.reasoning,
+         datetime.now(timezone.utc).isoformat()),
+    )  # fmt: skip
 
 
 def route_recommendation(rec: PriceRecommendation) -> ApprovalOutcome:
@@ -80,6 +98,10 @@ def route_recommendation(rec: PriceRecommendation) -> ApprovalOutcome:
             f"\n[GUARDRAIL VIOLATION: {rec.guardrail_violation.value}] "
             f"for {rec.sku} -- requires explicit human approval."
         )
+
+    if _queue_conn is not None:
+        _enqueue_for_review(rec)
+        return ApprovalOutcome.QUEUED_FOR_REVIEW
 
     approved = _ask_human(rec)
     return (
@@ -112,12 +134,18 @@ def execute_recommendation(
 
 
 def run_approval(
-    recommendations: list[PriceRecommendation], catalog: pd.DataFrame
+    recommendations: list[PriceRecommendation],
+    catalog: pd.DataFrame,
+    conn=None,
+    run_id: str | None = None,
 ) -> list[ExecutionResult]:
     """Routes every recommendation through the approval gate and
     executes the approved ones against the catalog DataFrame in place.
     Caller (main.py) is responsible for persisting the updated catalog.
     """
+    global _queue_conn, _queue_run_id
+    queue = config.APPROVAL_MODE == "queue" and conn is not None
+    _queue_conn, _queue_run_id = (conn, run_id) if queue else (None, None)
     results = []
     for rec in recommendations:
         outcome = route_recommendation(rec)
@@ -127,4 +155,7 @@ def run_approval(
         status = "EXECUTED" if result.executed else "SKIPPED"
         print(f"[{status}] {rec.sku}: {outcome.value}")
 
+    if queue:
+        conn.commit()
+    _queue_conn = _queue_run_id = None
     return results
