@@ -47,7 +47,21 @@ All numbers come from committed scripts, with outputs in `simulation/results/`. 
 |---|---|---|---|---|
 | 2,200 (27,734 daily price rows) | 99.95% | 99.0% | 0 / 200 | 2.7 s |
 
-LLM_COMPARE_RESULTS
+**LLM-only vs pipeline** (`python -m simulation.llm_compare`). The sample is 35 SKUs (5 per category), re-priced every 6 days of the same 30-day market. The LLM strategy runs the production single-SKU path on every SKU with local Qwen3-4B.
+
+| Strategy | Gross profit vs static | Avg margin |
+|---|---|---|
+| match competitor average (guarded) | +1.66% | 34.0% |
+| LLM-only (Qwen3-4B, guardrails enforced) | +1.38% | 33.9% |
+| **pipeline** (LP optimizer) | **+2.01%** | **35.1%** |
+
+About the LLM path:
+- **Schema-valid outputs:** 175 of 175, with JSON-schema-constrained decoding.
+- **Guardrail catches:** 11 of 175 (6.3%) proposed prices broke a guardrail and were not applied.
+- **Latency:** 12.2s at p50 on a 4 GB laptop GPU, at $0.
+
+The first run of this comparison used the optimizer from before the rounding and low-stock fixes. On that run the pipeline came last (+1.12%). The committed numbers rerun only the non-LLM strategies with the fixed code on the identical sample (`llm_compare_no_llm.json`). The first run is kept in `llm_compare_run1.json`.
+
 
 ## Architecture
 

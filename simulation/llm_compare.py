@@ -41,7 +41,7 @@ from tools.registry import register_all_tools
 PER_CATEGORY, REPRICE_EVERY = 5, 6
 
 
-def main() -> dict:
+def main(skip_llm: bool = False) -> dict:
     t0 = time.perf_counter()
     register_all_tools()
     config.MAX_STEPS_PER_RUN = 10_000  # evaluation run, not the daily job
@@ -60,7 +60,7 @@ def main() -> dict:
         full_prices[sample] = prices
         return mkt.expected_units(full_prices, d)[sample]
 
-    strategies = ["static", "match_guarded", "pipeline", "llm_only"]
+    strategies = ["static", "match_guarded", "pipeline"] + ([] if skip_llm else ["llm_only"])
     prices = {s: p0.copy() for s in strategies}
     tot = {s: {"profit": 0.0, "revenue": 0.0} for s in strategies}
     llm = {"calls": 0, "guardrail_rejected": 0, "failed": 0}
@@ -71,7 +71,7 @@ def main() -> dict:
             prices["match_guarded"] = np.round(
                 np.clip(m, *guard_bounds(cost, prices["match_guarded"])), 2
             )
-            for key in ("pipeline", "llm_only"):
+            for key in [k for k in ("pipeline", "llm_only") if k in strategies]:
                 rows = {
                     r["sku"]: r for _, r in cat.assign(our_price=prices[key]).iterrows()
                 }
@@ -121,10 +121,11 @@ def main() -> dict:
         "llm": {**llm, **tracker.stats()},
         "seconds": round(time.perf_counter() - t0, 1),
     }  # fmt: skip
-    with open(os.path.join(OUT, "llm_compare.json"), "w") as f:
+    name = "llm_compare_no_llm.json" if skip_llm else "llm_compare.json"
+    with open(os.path.join(OUT, name), "w") as f:
         json.dump(report, f, indent=2)
     return report
 
 
 if __name__ == "__main__":
-    print(json.dumps(main(), indent=2))
+    print(json.dumps(main(skip_llm="--no-llm" in sys.argv), indent=2))

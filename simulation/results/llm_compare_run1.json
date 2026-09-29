@@ -1,0 +1,35 @@
+{
+  "skus": 35,
+  "reprice_days": 5,
+  "profit_vs_static_pct": {
+    "static": 0.0,
+    "match_guarded": 1.66,
+    "pipeline": 1.12,
+    "llm_only": 1.38
+  },
+  "margin_pct": {
+    "static": 32.76,
+    "match_guarded": 34.03,
+    "pipeline": 35.06,
+    "llm_only": 33.9
+  },
+  "llm": {
+    "calls": 175,
+    "guardrail_rejected": 11,
+    "failed": 0,
+    "generate_attempts": 175,
+    "generate_successes": 175,
+    "llm_calls": 175,
+    "retries": 0,
+    "fallback_model_used": 0,
+    "rule_fallback_used": 0,
+    "models_used": {
+      "qwen3:4b-instruct": 175
+    },
+    "input_tokens": 44284,
+    "output_tokens": 57373,
+    "estimated_cost_usd": 0.0,
+    "latency_p50_ms": 12231
+  },
+  "seconds": 2245.7
+}
